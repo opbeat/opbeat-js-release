@@ -2127,7 +2127,7 @@ var utils = _dereq_('./utils')
 function Config () {
   this.config = {}
   this.defaults = {
-    VERSION: 'v3.0.0',
+    VERSION: 'v3.0.1',
     apiHost: 'intake.opbeat.com',
     isInstalled: false,
     logLevel: 'warn',
@@ -2225,6 +2225,17 @@ function _getDataAttributesFromNode (node) {
   }
 
   return dataAttrs
+}
+
+Config.prototype.VERSION = 'v3.0.1'
+
+Config.prototype.isPlatformSupport = function () {
+  return typeof Array.prototype.forEach === 'function' &&
+  typeof JSON.stringify === 'function' &&
+  typeof Function.bind === 'function' &&
+  window.performance &&
+  typeof window.performance.now === 'function' &&
+  utils.isCORSSupported()
 }
 
 module.exports = new Config()
@@ -2566,7 +2577,6 @@ module.exports = {
 
 },{}],18:[function(_dereq_,module,exports){
 var logger = _dereq_('./lib/logger')
-var utils = _dereq_('./lib/utils')
 var config = _dereq_('./lib/config')
 var Exceptions = _dereq_('./exceptions/exceptions')
 var API = _dereq_('./lib/api')
@@ -2585,15 +2595,10 @@ function Opbeat () {
   this.install()
 }
 
-Opbeat.prototype.VERSION = 'v3.0.0'
+Opbeat.prototype.VERSION = 'v3.0.1'
 
 Opbeat.prototype.isPlatformSupport = function () {
-  return typeof Array.prototype.forEach === 'function' &&
-  typeof JSON.stringify === 'function' &&
-  typeof Function.bind === 'function' &&
-  window.performance &&
-  typeof window.performance.now === 'function' &&
-  utils.isCORSSupported()
+  return this._config.isPlatformSupport()
 }
 
 /*
@@ -2712,4 +2717,4 @@ Opbeat.prototype.setExtraContext = function (extra) {
 
 module.exports = new Opbeat()
 
-},{"./exceptions/exceptions":9,"./lib/api":12,"./lib/config":13,"./lib/logger":15,"./lib/utils":17}]},{},[18]);
+},{"./exceptions/exceptions":9,"./lib/api":12,"./lib/config":13,"./lib/logger":15}]},{},[18]);
