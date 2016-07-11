@@ -2127,7 +2127,7 @@ var utils = _dereq_('./utils')
 function Config () {
   this.config = {}
   this.defaults = {
-    VERSION: 'v3.0.1',
+    VERSION: 'v3.1.0',
     apiHost: 'intake.opbeat.com',
     isInstalled: false,
     logLevel: 'warn',
@@ -2227,7 +2227,7 @@ function _getDataAttributesFromNode (node) {
   return dataAttrs
 }
 
-Config.prototype.VERSION = 'v3.0.1'
+Config.prototype.VERSION = 'v3.1.0'
 
 Config.prototype.isPlatformSupport = function () {
   return typeof Array.prototype.forEach === 'function' &&
@@ -2595,7 +2595,7 @@ function Opbeat () {
   this.install()
 }
 
-Opbeat.prototype.VERSION = 'v3.0.1'
+Opbeat.prototype.VERSION = 'v3.1.0'
 
 Opbeat.prototype.isPlatformSupport = function () {
   return this._config.isPlatformSupport()
