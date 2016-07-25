@@ -217,7 +217,7 @@
 
 
 }).call(this,undefined)
-},{"stackframe":6}],2:[function(_dereq_,module,exports){
+},{"stackframe":7}],2:[function(_dereq_,module,exports){
 (function (process,global,define){
 /*!
  * @overview es6-promise - a tiny implementation of Promises/A+.
@@ -1189,9 +1189,236 @@
 
 }).call(this,undefined,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},undefined)
 },{}],3:[function(_dereq_,module,exports){
+(function (define){
+/*
+* loglevel - https://github.com/pimterry/loglevel
+*
+* Copyright (c) 2013 Tim Perry
+* Licensed under the MIT license.
+*/
+(function (root, definition) {
+    "use strict";
+    if (typeof module === 'object' && module.exports && typeof _dereq_ === 'function') {
+        module.exports = definition();
+    } else if (typeof define === 'function' && typeof define.amd === 'object') {
+        define(definition);
+    } else {
+        root.log = definition();
+    }
+}(this, function () {
+    "use strict";
+    var noop = function() {};
+    var undefinedType = "undefined";
+
+    function realMethod(methodName) {
+        if (typeof console === undefinedType) {
+            return false; // We can't build a real method without a console to log to
+        } else if (console[methodName] !== undefined) {
+            return bindMethod(console, methodName);
+        } else if (console.log !== undefined) {
+            return bindMethod(console, 'log');
+        } else {
+            return noop;
+        }
+    }
+
+    function bindMethod(obj, methodName) {
+        var method = obj[methodName];
+        if (typeof method.bind === 'function') {
+            return method.bind(obj);
+        } else {
+            try {
+                return Function.prototype.bind.call(method, obj);
+            } catch (e) {
+                // Missing bind shim or IE8 + Modernizr, fallback to wrapping
+                return function() {
+                    return Function.prototype.apply.apply(method, [obj, arguments]);
+                };
+            }
+        }
+    }
+
+    // these private functions always need `this` to be set properly
+
+    function enableLoggingWhenConsoleArrives(methodName, level, loggerName) {
+        return function () {
+            if (typeof console !== undefinedType) {
+                replaceLoggingMethods.call(this, level, loggerName);
+                this[methodName].apply(this, arguments);
+            }
+        };
+    }
+
+    function replaceLoggingMethods(level, loggerName) {
+        /*jshint validthis:true */
+        for (var i = 0; i < logMethods.length; i++) {
+            var methodName = logMethods[i];
+            this[methodName] = (i < level) ?
+                noop :
+                this.methodFactory(methodName, level, loggerName);
+        }
+    }
+
+    function defaultMethodFactory(methodName, level, loggerName) {
+        /*jshint validthis:true */
+        return realMethod(methodName) ||
+               enableLoggingWhenConsoleArrives.apply(this, arguments);
+    }
+
+    var logMethods = [
+        "trace",
+        "debug",
+        "info",
+        "warn",
+        "error"
+    ];
+
+    function Logger(name, defaultLevel, factory) {
+      var self = this;
+      var currentLevel;
+      var storageKey = "loglevel";
+      if (name) {
+        storageKey += ":" + name;
+      }
+
+      function persistLevelIfPossible(levelNum) {
+          var levelName = (logMethods[levelNum] || 'silent').toUpperCase();
+
+          // Use localStorage if available
+          try {
+              window.localStorage[storageKey] = levelName;
+              return;
+          } catch (ignore) {}
+
+          // Use session cookie as fallback
+          try {
+              window.document.cookie =
+                encodeURIComponent(storageKey) + "=" + levelName + ";";
+          } catch (ignore) {}
+      }
+
+      function getPersistedLevel() {
+          var storedLevel;
+
+          try {
+              storedLevel = window.localStorage[storageKey];
+          } catch (ignore) {}
+
+          if (typeof storedLevel === undefinedType) {
+              try {
+                  var cookie = window.document.cookie;
+                  var location = cookie.indexOf(
+                      encodeURIComponent(storageKey) + "=");
+                  if (location) {
+                      storedLevel = /^([^;]+)/.exec(cookie.slice(location))[1];
+                  }
+              } catch (ignore) {}
+          }
+
+          // If the stored level is not valid, treat it as if nothing was stored.
+          if (self.levels[storedLevel] === undefined) {
+              storedLevel = undefined;
+          }
+
+          return storedLevel;
+      }
+
+      /*
+       *
+       * Public API
+       *
+       */
+
+      self.levels = { "TRACE": 0, "DEBUG": 1, "INFO": 2, "WARN": 3,
+          "ERROR": 4, "SILENT": 5};
+
+      self.methodFactory = factory || defaultMethodFactory;
+
+      self.getLevel = function () {
+          return currentLevel;
+      };
+
+      self.setLevel = function (level, persist) {
+          if (typeof level === "string" && self.levels[level.toUpperCase()] !== undefined) {
+              level = self.levels[level.toUpperCase()];
+          }
+          if (typeof level === "number" && level >= 0 && level <= self.levels.SILENT) {
+              currentLevel = level;
+              if (persist !== false) {  // defaults to true
+                  persistLevelIfPossible(level);
+              }
+              replaceLoggingMethods.call(self, level, name);
+              if (typeof console === undefinedType && level < self.levels.SILENT) {
+                  return "No console available for logging";
+              }
+          } else {
+              throw "log.setLevel() called with invalid level: " + level;
+          }
+      };
+
+      self.setDefaultLevel = function (level) {
+          if (!getPersistedLevel()) {
+              self.setLevel(level, false);
+          }
+      };
+
+      self.enableAll = function(persist) {
+          self.setLevel(self.levels.TRACE, persist);
+      };
+
+      self.disableAll = function(persist) {
+          self.setLevel(self.levels.SILENT, persist);
+      };
+
+      // Initialize with the right level
+      var initialLevel = getPersistedLevel();
+      if (initialLevel == null) {
+          initialLevel = defaultLevel == null ? "WARN" : defaultLevel;
+      }
+      self.setLevel(initialLevel, false);
+    }
+
+    /*
+     *
+     * Package-level API
+     *
+     */
+
+    var defaultLogger = new Logger();
+
+    var _loggersByName = {};
+    defaultLogger.getLogger = function getLogger(name) {
+        if (typeof name !== "string" || name === "") {
+          throw new TypeError("You must supply a name when creating a logger.");
+        }
+
+        var logger = _loggersByName[name];
+        if (!logger) {
+          logger = _loggersByName[name] = new Logger(
+            name, defaultLogger.getLevel(), defaultLogger.methodFactory);
+        }
+        return logger;
+    };
+
+    // Grab the current global log variable in case of overwrite
+    var _log = (typeof window !== undefinedType) ? window.log : undefined;
+    defaultLogger.noConflict = function() {
+        if (typeof window !== undefinedType &&
+               window.log === defaultLogger) {
+            window.log = _log;
+        }
+
+        return defaultLogger;
+    };
+
+    return defaultLogger;
+}));
+
+}).call(this,undefined)
+},{}],4:[function(_dereq_,module,exports){
 module.exports = _dereq_('./lib/simple_lru.js');
 
-},{"./lib/simple_lru.js":4}],4:[function(_dereq_,module,exports){
+},{"./lib/simple_lru.js":5}],5:[function(_dereq_,module,exports){
 "use strict";
 
 /**
@@ -1339,7 +1566,7 @@ Cache.prototype.forEach = function(callback){
 }
 module.exports=Cache
 
-},{}],5:[function(_dereq_,module,exports){
+},{}],6:[function(_dereq_,module,exports){
 (function (define){
 (function (root, factory) {
     'use strict';
@@ -1388,7 +1615,7 @@ module.exports=Cache
 }));
 
 }).call(this,undefined)
-},{"stackframe":6}],6:[function(_dereq_,module,exports){
+},{"stackframe":7}],7:[function(_dereq_,module,exports){
 (function (define){
 (function (root, factory) {
     'use strict';
@@ -1499,7 +1726,7 @@ module.exports=Cache
 }));
 
 }).call(this,undefined)
-},{}],7:[function(_dereq_,module,exports){
+},{}],8:[function(_dereq_,module,exports){
 module.exports = {
   createValidFrames: function createValidFrames (frames) {
     var result = []
@@ -1512,7 +1739,338 @@ module.exports = {
   }
 }
 
-},{}],8:[function(_dereq_,module,exports){
+},{}],9:[function(_dereq_,module,exports){
+var backendUtils = _dereq_('./backend_utils')
+module.exports = OpbeatBackend
+function OpbeatBackend (transport, logger, config) {
+  this._logger = logger
+  this._transport = transport
+  this._config = config
+}
+OpbeatBackend.prototype.sendError = function (errorData) {
+  if (this._config.isValid()) {
+    errorData.stacktrace.frames = backendUtils.createValidFrames(errorData.stacktrace.frames)
+    this._transport.sendError(errorData)
+  } else {
+    this._logger.debug('Config is not valid')
+  }
+}
+
+OpbeatBackend.prototype.groupSmallContinuouslySimilarTraces = function (transaction, threshold) {
+  var transDuration = transaction.duration()
+  var traces = []
+  var lastCount = 1
+  transaction.traces
+    .forEach(function (trace, index) {
+      if (traces.length === 0) {
+        traces.push(trace)
+      } else {
+        var lastTrace = traces[traces.length - 1]
+
+        var isContinuouslySimilar = lastTrace.type === trace.type &&
+          lastTrace.signature === trace.signature &&
+          trace.duration() / transDuration < threshold &&
+          (trace._start - lastTrace._end) / transDuration < threshold
+
+        var isLastTrace = transaction.traces.length === index + 1
+
+        if (isContinuouslySimilar) {
+          lastCount++
+          lastTrace._end = trace._end
+          lastTrace.calcDiff()
+        }
+
+        if (lastCount > 1 && (!isContinuouslySimilar || isLastTrace)) {
+          lastTrace.signature = lastCount + 'x ' + lastTrace.signature
+          lastCount = 1
+        }
+
+        if (!isContinuouslySimilar && !isLastTrace) {
+          traces.push(trace)
+        }
+      }
+    })
+  return traces
+}
+
+OpbeatBackend.prototype.sendTransactions = function (transactionList) {
+  var opbeatBackend = this
+  if (this._config.isValid()) {
+    transactionList.forEach(function (transaction) {
+      transaction.traces.sort(function (traceA, traceB) {
+        return traceA._start - traceB._start
+      })
+
+      if (opbeatBackend._config.get('performance.groupSimilarTraces')) {
+        var similarTraceThreshold = opbeatBackend._config.get('performance.similarTraceThreshold')
+        transaction.traces = opbeatBackend.groupSmallContinuouslySimilarTraces(transaction, similarTraceThreshold)
+      }
+    })
+    var filterTransactions = transactionList.filter(function (tr) {
+      return !tr.isUseless
+    })
+    var formatedTransactions = this._formatTransactions(filterTransactions)
+    return this._transport.sendTransaction(formatedTransactions)
+  } else {
+    this._logger.debug('Config is not valid')
+  }
+}
+
+OpbeatBackend.prototype._formatTransactions = function (transactionList) {
+  var transactions = this.groupTransactions(transactionList)
+
+  var traces = [].concat.apply([], transactionList.map(function (trans) {
+    return trans.traces
+  }))
+
+  var groupedTraces = groupTraces(traces)
+  var groupedTracesTimings = this.getRawGroupedTracesTimings(traces, groupedTraces)
+
+  return {
+    transactions: transactions,
+    traces: {
+      groups: groupedTraces,
+      raw: groupedTracesTimings
+    }
+  }
+}
+
+OpbeatBackend.prototype.groupTransactions = function groupTransactions (transactions) {
+  var groups = grouper(transactions, transactionGroupingKey)
+  return Object.keys(groups).map(function (key) {
+    var trans = groups[key][0]
+    var durations = groups[key].map(function (trans) {
+      return trans.duration()
+    })
+    return {
+      transaction: trans.name,
+      result: trans.result,
+      kind: trans.type,
+      timestamp: groupingTs(trans._startStamp).toISOString(),
+      durations: durations
+    }
+  })
+}
+
+OpbeatBackend.prototype.getRawGroupedTracesTimings = function getRawGroupedTracesTimings (traces, groupedTraces) {
+  var getTraceGroupIndex = function (col, item) {
+    var index = 0
+    var targetGroup = traceGroupingKey(item)
+
+    col.forEach(function (item, i) {
+      if (item._group === targetGroup) {
+        index = i
+      }
+    })
+
+    return index
+  }
+  var self = this
+  var groupedByTransaction = grouper(traces, function (trace) {
+    return trace.transaction.name + '|' + trace.transaction._start
+  })
+
+  return Object.keys(groupedByTransaction).map(function (key) {
+    var traces = groupedByTransaction[key]
+    var transaction = traces[0].transaction
+
+    var data = [transaction.duration()]
+
+    traces.forEach(function (trace) {
+      var groupIndex = getTraceGroupIndex(groupedTraces, trace)
+      var relativeTraceStart = trace._start - transaction._start
+
+      if (relativeTraceStart > transaction.duration()) {
+        self._logger.debug('%c -- opbeat.instrumentation.getRawGroupedTracesTimings.error.relativeTraceStartLargerThanTransactionDuration', 'color: #ff0000', relativeTraceStart, transaction._start, transaction.duration(), { trace: trace, transaction: transaction })
+      } else if (relativeTraceStart < 0) {
+        self._logger.debug('%c -- opbeat.instrumentation.getRawGroupedTracesTimings.error.negativeRelativeTraceStart!', 'color: #ff0000', relativeTraceStart, trace._start, transaction._start, trace)
+      } else if (trace.duration() > transaction.duration()) {
+        self._logger.debug('%c -- opbeat.instrumentation.getRawGroupedTracesTimings.error.traceDurationLargerThanTranscationDuration', 'color: #ff0000', trace.duration(), transaction.duration(), { trace: trace, transaction: transaction })
+      } else {
+        data.push([groupIndex, relativeTraceStart, trace.duration()])
+      }
+    })
+
+    return data
+  })
+}
+
+function groupTraces (traces) {
+  var groupedByMinute = grouper(traces, traceGroupingKey)
+
+  return Object.keys(groupedByMinute).map(function (key) {
+    var trace = groupedByMinute[key][0]
+
+    var startTime = trace._start
+    if (trace.transaction) {
+      startTime = startTime - trace.transaction._start
+    } else {
+      startTime = 0
+    }
+
+    var extra = {}
+    var frames = backendUtils.createValidFrames(trace.frames)
+    if (frames.length > 0) {
+      extra._frames = frames
+    }
+
+    return {
+      transaction: trace.transaction.name,
+      signature: trace.signature,
+      kind: trace.type,
+      timestamp: trace.transaction._startStamp.toISOString(),
+      parents: trace.ancestors(),
+      extra: extra,
+      _group: key
+    }
+  }).sort(function (a, b) {
+    return a.start_time - b.start_time
+  })
+}
+
+function grouper (arr, func) {
+  var groups = {}
+
+  arr.forEach(function (obj) {
+    var key = func(obj)
+    if (key in groups) {
+      groups[key].push(obj)
+    } else {
+      groups[key] = [obj]
+    }
+
+    obj._traceGroup = key
+  })
+
+  return groups
+}
+
+function groupingTs (ts) {
+  return new Date(ts.getFullYear(), ts.getMonth(), ts.getDate(), ts.getHours(), ts.getMinutes())
+}
+
+function transactionGroupingKey (trans) {
+  return [
+    groupingTs(trans._startStamp).getTime(),
+    trans.name,
+    trans.result,
+    trans.type
+  ].join('-')
+}
+
+function traceGroupingKey (trace) {
+  var ancestors = trace.ancestors().map(function (trace) {
+    return trace.signature
+  }).join(',')
+
+  return [
+    groupingTs(trace.transaction._startStamp).getTime(),
+    trace.transaction.name,
+    ancestors,
+    trace.signature,
+    trace.type
+  ].join('-')
+}
+
+},{"./backend_utils":8}],10:[function(_dereq_,module,exports){
+var OpbeatBackend = _dereq_('../backend/opbeat_backend')
+var Logger = _dereq_('loglevel')
+var Config = _dereq_('../lib/config')
+
+var utils = _dereq_('../lib/utils')
+var transport = _dereq_('../lib/transport')
+var ExceptionHandler = _dereq_('../exceptions/exceptionHandler')
+
+function ServiceFactory () {
+  this.services = {}
+}
+
+ServiceFactory.prototype.getOpbeatBackend = function () {
+  if (utils.isUndefined(this.services['OpbeatBackend'])) {
+    var logger = this.getLogger()
+    var configService = this.getConfigService()
+    var _transport = this.getTransport()
+    this.services['OpbeatBackend'] = new OpbeatBackend(_transport, logger, configService)
+  }
+  return this.services['OpbeatBackend']
+}
+
+ServiceFactory.prototype.getTransport = function () {
+  if (utils.isUndefined(this.services['Transport'])) {
+    this.services['Transport'] = transport
+  }
+  return this.services['Transport']
+}
+
+ServiceFactory.prototype.setLogLevel = function (logger, configService) {
+  if (configService.get('debug') === true && configService.config.logLevel !== 'trace') {
+    logger.setLevel('debug', false)
+  } else {
+    logger.setLevel(configService.get('logLevel'), false)
+  }
+}
+
+ServiceFactory.prototype.getLogger = function () {
+  if (utils.isUndefined(this.services['Logger'])) {
+    var configService = this.getConfigService()
+    var serviceFactory = this
+    serviceFactory.setLogLevel(Logger, configService)
+    configService.subscribeToChange(function (newConfig) {
+      serviceFactory.setLogLevel(Logger, configService)
+    })
+    this.services['Logger'] = Logger
+  }
+  return this.services['Logger']
+}
+
+ServiceFactory.prototype.getConfigService = function () {
+  if (utils.isUndefined(this.services['ConfigService'])) {
+    Config.init()
+    this.services['ConfigService'] = Config
+  }
+  return this.services['ConfigService']
+}
+
+ServiceFactory.prototype.getExceptionHandler = function () {
+  if (utils.isUndefined(this.services['ExceptionHandler'])) {
+    var exceptionHandler = new ExceptionHandler(this.getOpbeatBackend())
+    this.services['ExceptionHandler'] = exceptionHandler
+  }
+  return this.services['ExceptionHandler']
+}
+
+module.exports = ServiceFactory
+
+},{"../backend/opbeat_backend":9,"../exceptions/exceptionHandler":13,"../lib/config":17,"../lib/transport":20,"../lib/utils":21,"loglevel":3}],11:[function(_dereq_,module,exports){
+function Subscription () {
+  this.subscriptions = []
+}
+
+Subscription.prototype.subscribe = function (fn) {
+  var self = this
+  this.subscriptions.push(fn)
+
+  return function () {
+    var index = self.subscriptions.indexOf(fn)
+    if (index > -1) {
+      self.subscriptions.splice(index, 1)
+    }
+  }
+}
+
+Subscription.prototype.applyAll = function (applyTo, applyWith) {
+  this.subscriptions.forEach(function (fn) {
+    try {
+      fn.apply(applyTo, applyWith)
+    } catch (error) {
+      console.log(error, error.stack)
+    }
+  }, this)
+}
+
+module.exports = Subscription
+
+},{}],12:[function(_dereq_,module,exports){
 var Promise = _dereq_('es6-promise').Promise
 var utils = _dereq_('../lib/utils')
 var fileFetcher = _dereq_('../lib/fileFetcher')
@@ -1676,30 +2234,30 @@ module.exports = {
 
 }
 
-},{"../lib/fileFetcher":14,"../lib/utils":17,"es6-promise":2}],9:[function(_dereq_,module,exports){
+},{"../lib/fileFetcher":18,"../lib/utils":21,"es6-promise":2}],13:[function(_dereq_,module,exports){
 var Promise = _dereq_('es6-promise').Promise
 var stackTrace = _dereq_('./stacktrace')
 var frames = _dereq_('./frames')
 
-var Exceptions = function () {
-
+var ExceptionHandler = function (opbeatBackend) {
+  this._opbeatBackend = opbeatBackend
 }
 
-Exceptions.prototype.install = function () {
+ExceptionHandler.prototype.install = function () {
   window.onerror = function (msg, file, line, col, error) {
-    processError.call(this, error, msg, file, line, col)
+    this._processError(error, msg, file, line, col)
   }.bind(this)
 }
 
-Exceptions.prototype.uninstall = function () {
+ExceptionHandler.prototype.uninstall = function () {
   window.onerror = null
 }
 
-Exceptions.prototype.processError = function (err) {
-  processError(err)
+ExceptionHandler.prototype.processError = function (err) {
+  return this._processError(err)
 }
 
-function processError (error, msg, file, line, col) {
+ExceptionHandler.prototype._processError = function processError (error, msg, file, line, col) {
   if (msg === 'Script error.' && !file) {
     // ignoring script errors: See https://github.com/getsentry/raven-js/issues/41
     return
@@ -1734,23 +2292,23 @@ function processError (error, msg, file, line, col) {
     })
   }
 
-  resolveStackFrames.then(function (stackFrames) {
+  var exceptionHandler = this
+  return resolveStackFrames.then(function (stackFrames) {
     exception.stack = stackFrames || []
     return frames.stackInfoToOpbeatException(exception).then(function (exception) {
-      frames.processOpbeatException(exception)
+      var data = frames.processOpbeatException(exception)
+      exceptionHandler._opbeatBackend.sendError(data)
     })
   })['catch'](function () {})
 }
 
-module.exports = Exceptions
+module.exports = ExceptionHandler
 
-},{"./frames":10,"./stacktrace":11,"es6-promise":2}],10:[function(_dereq_,module,exports){
+},{"./frames":14,"./stacktrace":15,"es6-promise":2}],14:[function(_dereq_,module,exports){
 var Promise = _dereq_('es6-promise').Promise
 
 var logger = _dereq_('../lib/logger')
 var config = _dereq_('../lib/config')
-var transport = _dereq_('../lib/transport')
-var backendUtils = _dereq_('../backend/backend_utils')
 var utils = _dereq_('../lib/utils')
 var context = _dereq_('./context')
 var stackTrace = _dereq_('./stacktrace')
@@ -1915,9 +2473,8 @@ module.exports = {
       data.extra = utils.mergeObject(data.extra, config.get('context.extra'))
     }
 
-    data.stacktrace.frames = backendUtils.createValidFrames(data.stacktrace.frames)
     logger.log('opbeat.exceptions.processOpbeatException', data)
-    transport.sendError(data)
+    return data
   },
 
   cleanFilePath: function (filePath) {
@@ -1980,7 +2537,7 @@ module.exports = {
 
 }
 
-},{"../backend/backend_utils":7,"../lib/config":13,"../lib/logger":15,"../lib/transport":16,"../lib/utils":17,"./context":8,"./stacktrace":11,"es6-promise":2}],11:[function(_dereq_,module,exports){
+},{"../lib/config":17,"../lib/logger":19,"../lib/utils":21,"./context":12,"./stacktrace":15,"es6-promise":2}],15:[function(_dereq_,module,exports){
 var ErrorStackParser = _dereq_('error-stack-parser')
 var StackGenerator = _dereq_('stack-generator')
 var Promise = _dereq_('es6-promise').Promise
@@ -2088,7 +2645,7 @@ function normalizeFunctionName (fnName) {
   return fnName
 }
 
-},{"../lib/utils":17,"error-stack-parser":1,"es6-promise":2,"stack-generator":5}],12:[function(_dereq_,module,exports){
+},{"../lib/utils":21,"error-stack-parser":1,"es6-promise":2,"stack-generator":6}],16:[function(_dereq_,module,exports){
 var utils = _dereq_('./utils')
 
 function api (opbeat, queuedCommands) {
@@ -2121,15 +2678,17 @@ api.prototype.push = function () {
 
 module.exports = api
 
-},{"./utils":17}],13:[function(_dereq_,module,exports){
+},{"./utils":21}],17:[function(_dereq_,module,exports){
 var utils = _dereq_('./utils')
+var Subscription = _dereq_('../common/subscription')
 
 function Config () {
   this.config = {}
   this.defaults = {
-    VERSION: 'v3.1.1',
+    VERSION: 'v3.1.2',
     apiHost: 'intake.opbeat.com',
     isInstalled: false,
+    debug: false,
     logLevel: 'warn',
     orgId: null,
     appId: null,
@@ -2137,7 +2696,8 @@ function Config () {
     performance: {
       enable: true,
       enableStackFrames: false,
-      groupSimilarTraces: false
+      groupSimilarTraces: false,
+      similarTraceThreshold: 0.05
     },
     libraryPathPattern: '(node_modules|bower_components|webpack)',
     context: {
@@ -2146,11 +2706,7 @@ function Config () {
     }
   }
 
-  // Only generate stack frames 10% of the time
-  var shouldGenerateStackFrames = utils.getRandomInt(0, 10) === 1
-  if (shouldGenerateStackFrames) {
-    this.defaults.performance.enableStackFrames = shouldGenerateStackFrames
-  }
+  this._changeSubscription = new Subscription()
 }
 
 Config.prototype.init = function () {
@@ -2185,8 +2741,13 @@ Config.prototype.set = function (key, value) {
 
 Config.prototype.setConfig = function (properties) {
   properties = properties || {}
-  var prevCfg = utils.mergeObject(this.defaults, this.config)
-  this.config = utils.mergeObject(prevCfg, properties)
+  this.config = utils.merge({}, this.defaults, this.config, properties)
+
+  this._changeSubscription.applyAll(this, [this.config])
+}
+
+Config.prototype.subscribeToChange = function (fn) {
+  return this._changeSubscription.subscribe(fn)
 }
 
 Config.prototype.isValid = function () {
@@ -2228,7 +2789,7 @@ function _getDataAttributesFromNode (node) {
   return dataAttrs
 }
 
-Config.prototype.VERSION = 'v3.1.1'
+Config.prototype.VERSION = 'v3.1.2'
 
 Config.prototype.isPlatformSupport = function () {
   return typeof Array.prototype.forEach === 'function' &&
@@ -2241,7 +2802,7 @@ Config.prototype.isPlatformSupport = function () {
 
 module.exports = new Config()
 
-},{"./utils":17}],14:[function(_dereq_,module,exports){
+},{"../common/subscription":11,"./utils":21}],18:[function(_dereq_,module,exports){
 var SimpleCache = _dereq_('simple-lru-cache')
 var transport = _dereq_('./transport')
 
@@ -2261,7 +2822,7 @@ module.exports = {
   }
 }
 
-},{"./transport":16,"simple-lru-cache":3}],15:[function(_dereq_,module,exports){
+},{"./transport":20,"simple-lru-cache":4}],19:[function(_dereq_,module,exports){
 var config = _dereq_('./config')
 
 var logStack = []
@@ -2304,7 +2865,7 @@ module.exports = {
   }
 }
 
-},{"./config":13}],16:[function(_dereq_,module,exports){
+},{"./config":17}],20:[function(_dereq_,module,exports){
 var logger = _dereq_('./logger')
 var config = _dereq_('./config')
 var Promise = _dereq_('es6-promise').Promise
@@ -2383,7 +2944,9 @@ function _makeRequest (url, method, type, data, headers) {
   })
 }
 
-},{"./config":13,"./logger":15,"es6-promise":2}],17:[function(_dereq_,module,exports){
+},{"./config":17,"./logger":19,"es6-promise":2}],21:[function(_dereq_,module,exports){
+var slice = [].slice
+
 module.exports = {
   getViewPortInfo: function getViewPort () {
     var e = document.documentElement
@@ -2411,6 +2974,39 @@ module.exports = {
 
     return o3
   },
+
+  extend: function extend (dst) {
+    return this.baseExtend(dst, slice.call(arguments, 1), false)
+  },
+
+  merge: function merge (dst) {
+    return this.baseExtend(dst, slice.call(arguments, 1), true)
+  },
+
+  baseExtend: function baseExtend (dst, objs, deep) {
+    for (var i = 0, ii = objs.length; i < ii; ++i) {
+      var obj = objs[i]
+      if (!isObject(obj) && !isFunction(obj)) continue
+      var keys = Object.keys(obj)
+      for (var j = 0, jj = keys.length; j < jj; j++) {
+        var key = keys[j]
+        var src = obj[key]
+
+        if (deep && isObject(src)) {
+          if (!isObject(dst[key])) dst[key] = Array.isArray(src) ? [] : {}
+          baseExtend(dst[key], [src], false) // only one level of deep merge
+        } else {
+          dst[key] = src
+        }
+      }
+    }
+
+    return dst
+  },
+
+  isObject: isObject,
+
+  isFunction: isFunction,
 
   arrayReduce: function (arrayValue, callback, value) {
     // Source: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/reduce
@@ -2576,15 +3172,25 @@ module.exports = {
 
 }
 
-},{}],18:[function(_dereq_,module,exports){
+function isObject (value) {
+  // http://jsperf.com/isobject4
+  return value !== null && typeof value === 'object'
+}
+
+function isFunction (value) {
+  return typeof value === 'function'
+}
+
+},{}],22:[function(_dereq_,module,exports){
 var logger = _dereq_('./lib/logger')
-var config = _dereq_('./lib/config')
-var Exceptions = _dereq_('./exceptions/exceptions')
 var API = _dereq_('./lib/api')
 
+var ServiceFactory = _dereq_('./common/serviceFactory')
+
 function Opbeat () {
-  this._config = config
-  this._config.init()
+  this._serviceFactory = new ServiceFactory()
+
+  this._config = this._serviceFactory.getConfigService()
 
   var queuedCommands = []
   if (window._opbeat) {
@@ -2596,7 +3202,7 @@ function Opbeat () {
   this.install()
 }
 
-Opbeat.prototype.VERSION = 'v3.1.1'
+Opbeat.prototype.VERSION = 'v3.1.2'
 
 Opbeat.prototype.isPlatformSupport = function () {
   return this._config.isPlatformSupport()
@@ -2610,7 +3216,7 @@ Opbeat.prototype.isPlatformSupport = function () {
  */
 Opbeat.prototype.config = function (properties) {
   if (properties) {
-    config.setConfig(properties)
+    this._config.setConfig(properties)
   }
 
   this.install()
@@ -2628,7 +3234,7 @@ Opbeat.prototype.config = function (properties) {
  */
 
 Opbeat.prototype.install = function () {
-  if (!config.isValid()) {
+  if (!this._config.isValid()) {
     logger.warning('opbeat.install.config.invalid')
     return this
   }
@@ -2643,7 +3249,7 @@ Opbeat.prototype.install = function () {
     return this
   }
 
-  this._exceptions = new Exceptions()
+  this._exceptions = this._exceptionHandler = this._serviceFactory.getExceptionHandler()
 
   this._exceptions.install()
   this._config.set('isInstalled', true)
@@ -2699,7 +3305,7 @@ Opbeat.prototype.captureException = function (ex, options) {
  * @return {Opbeat}
  */
 Opbeat.prototype.setUserContext = function (user) {
-  config.set('context.user', user)
+  this._config.set('context.user', user)
 
   return this
 }
@@ -2711,11 +3317,11 @@ Opbeat.prototype.setUserContext = function (user) {
  * @return {Opbeat}
  */
 Opbeat.prototype.setExtraContext = function (extra) {
-  config.set('context.extra', extra)
+  this._config.set('context.extra', extra)
 
   return this
 }
 
 module.exports = new Opbeat()
 
-},{"./exceptions/exceptions":9,"./lib/api":12,"./lib/config":13,"./lib/logger":15}]},{},[18]);
+},{"./common/serviceFactory":10,"./lib/api":16,"./lib/logger":19}]},{},[22]);
