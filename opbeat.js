@@ -1855,6 +1855,13 @@ OpbeatBackend.prototype._formatTransactions = function (transactionList) {
   var groupedTraces = groupTraces(traces)
   var groupedTracesTimings = this.getRawGroupedTracesTimings(traces, groupedTraces)
 
+  groupedTraces.forEach(function (g) {
+    delete g._group
+    if (typeof g.signature === 'string') {
+      g.signature = g.signature.substring(0, 511)
+    }
+  })
+
   return {
     transactions: transactions,
     traces: {
@@ -2721,7 +2728,7 @@ function Config () {
   this.config = {}
   this.defaults = {
     opbeatAgentName: 'opbeat-js',
-    VERSION: 'v3.1.3',
+    VERSION: 'v3.1.4',
     apiHost: 'intake.opbeat.com',
     isInstalled: false,
     debug: false,
@@ -2836,9 +2843,9 @@ function _getDataAttributesFromNode (node) {
   return dataAttrs
 }
 
-Config.prototype.VERSION = 'v3.1.3'
+Config.prototype.VERSION = 'v3.1.4'
 
-Config.prototype.isPlatformSupport = function () {
+Config.prototype.isPlatformSupported = function () {
   return typeof Array.prototype.forEach === 'function' &&
   typeof JSON.stringify === 'function' &&
   typeof Function.bind === 'function' &&
@@ -3249,10 +3256,10 @@ function Opbeat () {
   this.install()
 }
 
-Opbeat.prototype.VERSION = 'v3.1.3'
+Opbeat.prototype.VERSION = 'v3.1.4'
 
-Opbeat.prototype.isPlatformSupport = function () {
-  return this._config.isPlatformSupport()
+Opbeat.prototype.isPlatformSupported = function () {
+  return this._config.isPlatformSupported()
 }
 
 /*
@@ -3286,7 +3293,7 @@ Opbeat.prototype.install = function () {
     return this
   }
 
-  if (!this.isPlatformSupport()) {
+  if (!this.isPlatformSupported()) {
     logger.warning('opbeat.install.platform.unsupported')
     return this
   }
